@@ -1,42 +1,31 @@
 # Gerador de Fluxo de Caixa Mensal de Obra
 
-Site local em Streamlit para gerar automaticamente uma planilha físico-financeira a partir de:
+Este app gera uma planilha físico-financeira no mesmo modelo do arquivo `fluxo_caixa_mensal_infinite_IA.xlsx`.
 
-1. Orçamento/PLS em `.xls` ou `.xlsx`
-2. Cronograma físico em `.xlsx`
+## Abas geradas
 
-## Como rodar
+1. Dashboard
+2. Fluxo Mensal
+3. Macroserviços
+4. Atividades Base
+5. Premissas
 
-No terminal, dentro desta pasta:
+## Rodar localmente
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-O navegador abrirá o site. Envie os dois arquivos e clique em **Gerar planilha**.
+## Publicar no Streamlit Community Cloud
 
-## O que a planilha gerada contém
+1. Suba estes arquivos para um repositório GitHub.
+2. Acesse https://share.streamlit.io/
+3. Clique em **New app**.
+4. Selecione o repositório.
+5. Main file: `app.py`.
+6. Clique em **Deploy**.
 
-- Dashboard
-- Fluxo Mensal
-- Macroserviços
-- Base Distribuição
-- Resumo Orçamento
-- Itens Orçamento
-- Atividades Cronograma
-- Riscos
+## Ajuste das regras
 
-## Lógica de cálculo
-
-- O orçamento é classificado automaticamente por macroserviço.
-- O cronograma é classificado automaticamente pelas atividades e lotes/pavimentos.
-- Serviços repetitivos, como estrutura, alvenaria, instalações e acabamentos, são distribuídos por frente/pavimento.
-- Serviços de fornecimento, como elevadores e esquadrias, são tratados por marcos.
-- Serviços sem atividade direta são distribuídos no período total da obra e aparecem nas premissas.
-
-## Onde ajustar regras
-
-As regras ficam no arquivo `engine.py`, na lista `MACRO_RULES`.
-
-Você pode alterar palavras-chave, critério de distribuição e premissas por macroserviço.
+As regras de classificação ficam no arquivo `engine.py`, variável `MACRO_RULES`.
