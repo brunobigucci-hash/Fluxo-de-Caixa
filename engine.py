@@ -200,18 +200,84 @@ def _find_col(columns, options):
     return None
 
 
+def _detect_header_row(raw: pd.DataFrame) -> int | None:
+    """Detecta a linha de cabeçalho em cronogramas exportados do Project/Prevision.
+
+    O cronograma do Infinite, por exemplo, vem com título nas primeiras linhas e
+    cabeçalho real na linha 4: ID, Pacote de trabalho/tarefas, Serviço, Lote,
+    Data de Início, Data de Término. Ler com header=0 quebra a identificação.
+    """
+    best_idx = None
+    best_score = -1
+    header_tokens = [
+        "id", "atividade", "tarefa", "pacote", "servico", "serviço", "lote",
+        "pavimento", "andar", "local", "data de inicio", "data de início",
+        "inicio", "início", "data de termino", "data de término", "fim", "termino", "término"
+    ]
+    max_rows = min(len(raw), 30)
+    for i in range(max_rows):
+        row = [_norm(x) for x in raw.iloc[i].tolist()]
+        joined = " | ".join(row)
+        non_empty = sum(1 for x in row if x)
+        score = 0
+        for token in header_tokens:
+            t = _norm(token)
+            if any(t == cell or t in cell for cell in row) or t in joined:
+                score += 1
+        # Cronogramas normalmente têm várias colunas preenchidas no cabeçalho.
+        if non_empty >= 4:
+            score += 2
+        if score > best_score:
+            best_score = score
+            best_idx = i
+    return best_idx if best_score >= 4 else None
+
+
+def _sheet_with_detected_header(raw: pd.DataFrame) -> pd.DataFrame:
+    header_row = _detect_header_row(raw)
+    if header_row is None:
+        # Fallback: mantém o comportamento antigo, mas ainda tenta limpar linhas vazias.
+        df = raw.dropna(how="all").dropna(axis=1, how="all").copy()
+        if df.empty:
+            return df
+        df.columns = [str(c) for c in df.iloc[0].tolist()]
+        df = df.iloc[1:].copy()
+    else:
+        headers = raw.iloc[header_row].tolist()
+        df = raw.iloc[header_row + 1:].copy()
+        df.columns = headers
+    df = df.dropna(how="all").dropna(axis=1, how="all")
+    # Remove colunas auxiliares sem nome geradas por exportações Excel.
+    keep_cols = []
+    for c in df.columns:
+        nc = _norm(c)
+        if nc and not nc.startswith("unnamed") and nc != "nan":
+            keep_cols.append(c)
+    if keep_cols:
+        df = df[keep_cols]
+    return df.reset_index(drop=True)
+
+
 def _extract_schedule(schedule_file) -> pd.DataFrame:
-    sheets = _read_excel_any(schedule_file, header=0)
+    # Lê sem cabeçalho e detecta a linha real de cabeçalho. Isso corrige arquivos
+    # com título/metadata acima da tabela, como o cronograma Infinite.
+    raw_sheets = _read_excel_any(schedule_file, header=None)
     best = None
     best_score = -1
-    for _, df in sheets.items():
-        score = 0
+    diagnostics = []
+
+    for sheet_name, raw in raw_sheets.items():
+        df = _sheet_with_detected_header(raw)
+        if df is None or df.empty:
+            continue
         cols = [_norm(c) for c in df.columns]
-        for key in ["atividade", "tarefa", "nome", "inicio", "fim", "termino", "lote", "pavimento"]:
-            if any(key in c for c in cols):
+        score = 0
+        for key in ["atividade", "tarefa", "pacote", "nome", "inicio", "início", "data de inicio", "fim", "termino", "término", "data de termino", "lote", "pavimento"]:
+            if any(_norm(key) in c for c in cols):
                 score += 1
         if len(df) > 20:
             score += 2
+        diagnostics.append(f"{sheet_name}: colunas={list(map(str, df.columns))[:8]}")
         if score > best_score:
             best_score = score
             best = df.copy()
@@ -220,32 +286,37 @@ def _extract_schedule(schedule_file) -> pd.DataFrame:
         raise ValueError("Não encontrei uma aba de cronograma legível.")
 
     df = best.copy()
-    id_col = _find_col(df.columns, ["id", "codigo"])
-    activity_col = _find_col(df.columns, ["atividade", "tarefa", "nome", "name"])
+    id_col = _find_col(df.columns, ["id", "codigo", "código"])
+    activity_col = _find_col(df.columns, ["pacote de trabalho/tarefas", "atividade", "tarefa", "nome", "name"])
     service_col = _find_col(df.columns, ["servico", "serviço"])
     lot_col = _find_col(df.columns, ["lote", "pavimento", "andar", "local"])
-    start_col = _find_col(df.columns, ["inicio", "início", "start"])
-    end_col = _find_col(df.columns, ["fim", "termino", "término", "finish"])
+    start_col = _find_col(df.columns, ["data de inicio", "data de início", "inicio", "início", "start"])
+    end_col = _find_col(df.columns, ["data de termino", "data de término", "fim", "termino", "término", "finish"])
 
     if activity_col is None:
-        # Usa a primeira coluna textual se o cronograma vier sem cabeçalho claro.
         text_cols = [c for c in df.columns if df[c].astype(str).str.len().mean() > 5]
         activity_col = text_cols[0] if text_cols else df.columns[0]
     if start_col is None or end_col is None:
-        raise ValueError("Não consegui identificar colunas de início e fim no cronograma.")
+        cols_txt = ", ".join(map(str, df.columns))
+        raise ValueError(
+            "Não consegui identificar colunas de início e fim no cronograma. "
+            f"Colunas lidas: {cols_txt}. Diagnóstico: {'; '.join(diagnostics)}"
+        )
 
     out = pd.DataFrame()
-    out["ID"] = df[id_col] if id_col else np.arange(1, len(df) + 1)
+    out["ID"] = df[id_col] if id_col is not None else np.arange(1, len(df) + 1)
     out["Atividade"] = df[activity_col].fillna("").astype(str)
-    out["Serviço"] = df[service_col].fillna("-").astype(str) if service_col else "-"
-    out["Lote"] = df[lot_col].fillna("-").astype(str) if lot_col else "-"
+    out["Serviço"] = df[service_col].fillna("-").astype(str) if service_col is not None else "-"
+    out["Lote"] = df[lot_col].fillna("-").astype(str) if lot_col is not None else "-"
     out["Início"] = df[start_col].apply(_as_date)
     out["Fim"] = df[end_col].apply(_as_date)
     out = out.dropna(subset=["Início", "Fim"])
     out = out[out["Atividade"].str.strip() != ""]
-    out["Macroserviço adotado"] = out.apply(lambda r: _classify_text(f"{r['Atividade']} {r['Serviço']} {r['Lote']}") or "Serviços finais", axis=1)
+    out["Macroserviço adotado"] = out.apply(
+        lambda r: _classify_text(f"{r['Atividade']} {r['Serviço']} {r['Lote']}") or "Serviços finais",
+        axis=1,
+    )
     return out.reset_index(drop=True)
-
 
 def _month_range(start: pd.Timestamp, end: pd.Timestamp) -> pd.DatetimeIndex:
     s = pd.Timestamp(start.year, start.month, 1)
