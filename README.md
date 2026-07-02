@@ -1,31 +1,46 @@
 # Gerador de Fluxo de Caixa Mensal de Obra
 
-Este app gera uma planilha físico-financeira no mesmo modelo do arquivo `fluxo_caixa_mensal_infinite_IA.xlsx`.
+Este app recebe dois arquivos:
 
-## Abas geradas
+1. **Orçamento / PLS** em `.xls` ou `.xlsx`
+2. **Cronograma físico** em `.xlsx`
 
-1. Dashboard
-2. Fluxo Mensal
-3. Macroserviços
-4. Atividades Base
-5. Premissas
+E gera uma planilha Excel com o mesmo padrão do modelo validado:
 
-## Rodar localmente
+- Dashboard
+- Fluxo Mensal
+- Macroserviços
+- Atividades Base
+- Premissas
+
+## Como rodar localmente
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Publicar no Streamlit Community Cloud
+## Como publicar no Streamlit Cloud
 
-1. Suba estes arquivos para um repositório GitHub.
+1. Suba estes arquivos no GitHub:
+   - `app.py`
+   - `engine.py`
+   - `requirements.txt`
+   - `README.md`
 2. Acesse https://share.streamlit.io/
-3. Clique em **New app**.
-4. Selecione o repositório.
-5. Main file: `app.py`.
-6. Clique em **Deploy**.
+3. Crie um novo app apontando para `app.py`.
 
-## Ajuste das regras
+## Como adaptar para outras obras
 
-As regras de classificação ficam no arquivo `engine.py`, variável `MACRO_RULES`.
+Edite as regras `MACRO_RULES` no arquivo `engine.py`.
+Cada regra define:
+
+- Nome do macroserviço
+- Códigos do orçamento
+- Critério de distribuição
+- Palavras-chave do cronograma
+- Fallback quando não encontrar atividade no cronograma
+
+## Observação técnica
+
+O modelo é gerencial: distribui o orçamento por macroserviço e usa o cronograma para lançar os custos mensalmente conforme as frentes executivas/pavimentos.
